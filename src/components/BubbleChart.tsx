@@ -66,6 +66,21 @@ export function BubbleChart({
     })
   }, [data, maxOpportunity, minOpportunity, sizeRange])
 
+  // Calculate padding needed for largest bubble to be fully visible
+  // We need to add sufficient padding to ensure the largest bubble doesn't get cut off
+  const cagrMin = Math.min(...transformedData.map(d => d.cagrIndex))
+  const cagrMax = Math.max(...transformedData.map(d => d.cagrIndex))
+  const cagrRange = cagrMax - cagrMin
+  const shareMin = Math.min(...transformedData.map(d => d.marketShareIndex))
+  const shareMax = Math.max(...transformedData.map(d => d.marketShareIndex))
+  const shareRange = shareMax - shareMin
+  
+  // Calculate padding: use a percentage of the range to ensure proper padding
+  // Very generous padding to account for largest bubble radius (up to 100px radius)
+  // Use 40-45% of range to ensure largest bubbles are fully visible with no clipping
+  const cagrPadding = Math.max(2.5, cagrRange * 0.45) // 45% of range, minimum 2.5
+  const sharePadding = Math.max(1.2, shareRange * 0.45) // 45% of range, minimum 1.2
+
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload
@@ -175,8 +190,8 @@ export function BubbleChart({
       <ResponsiveContainer width="100%" height="100%" className="relative z-10">
         <RechartsScatterChart
           margin={{
-            top: 40,
-            right: 40,
+            top: 60,
+            right: 60,
             left: 100,
             bottom: 100,
           }}
@@ -189,7 +204,7 @@ export function BubbleChart({
             style={{ fontSize: '13px', fontWeight: 500 }}
             tick={{ fill: isDark ? '#E2E8F0' : '#2D3748', fontSize: 12 }}
             tickMargin={10}
-            domain={['dataMin - 0.5', 'dataMax + 0.5']}
+            domain={[cagrMin - cagrPadding, cagrMax + cagrPadding]}
             label={{
               value: xAxisLabel,
               position: 'insideBottom',
@@ -208,7 +223,7 @@ export function BubbleChart({
             style={{ fontSize: '13px', fontWeight: 500 }}
             tick={{ fill: isDark ? '#E2E8F0' : '#2D3748', fontSize: 12 }}
             tickMargin={10}
-            domain={['dataMin - 0.5', 'dataMax + 0.5']}
+            domain={[shareMin - sharePadding, shareMax + sharePadding]}
             label={{
               value: yAxisLabel,
               angle: -90,

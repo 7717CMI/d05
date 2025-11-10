@@ -8,7 +8,6 @@ import {
   ResponsiveContainer,
   ReferenceLine,
   Cell,
-  Legend,
 } from 'recharts'
 import { useTheme } from '../context/ThemeContext'
 import { formatWithCommas } from '../utils/dataGenerator'
@@ -44,38 +43,24 @@ export function WaterfallChart({
     )
   }
 
-  // Transform data for waterfall chart using stacked bars
-  const transformedData = data.map((item, index) => {
-    if (item.isBase) {
+  // Find the base value (threshold) from 2024 data
+  const baseItem = data.find(item => item.isBase)
+  const threshold = baseItem?.baseValue || baseItem?.totalValue || 0
+
+  // Transform data to show market value per year with two-tone bars
+  // Include all years (including 2032 which is marked as isTotal)
+  const chartData = data.map(item => {
+      const marketValue = item.totalValue || item.baseValue || 0
+      const belowThreshold = Math.min(marketValue, threshold)
+      const aboveThreshold = Math.max(0, marketValue - threshold)
+      
       return {
-        ...item,
-        base: item.baseValue || 0,
-        incremental: 0,
-        cumulative: item.baseValue || 0,
+        year: item.year,
+        marketValue,
+        belowThreshold,
+        aboveThreshold,
       }
-    } else if (item.isTotal) {
-      const previousItem = index > 0 ? data[index - 1] : null
-      const previousCumulative = previousItem?.totalValue || 0
-      return {
-        ...item,
-        base: item.totalValue || 0,
-        incremental: 0,
-        cumulative: item.totalValue || 0,
-      }
-    } else {
-      const previousItem = index > 0 ? data[index - 1] : null
-      const previousCumulative = previousItem?.isBase 
-        ? previousItem.baseValue || 0
-        : previousItem?.totalValue || 0
-      const incremental = item.incrementalValue || 0
-      return {
-        ...item,
-        base: previousCumulative,
-        incremental: incremental,
-        cumulative: previousCumulative + incremental,
-      }
-    }
-  })
+    })
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -86,26 +71,14 @@ export function WaterfallChart({
             ? 'bg-navy-card border-electric-blue text-white' 
             : 'bg-white border-electric-blue text-gray-900'
         }`}>
-          <p className="font-bold text-base mb-2">{label}</p>
-          {data.isBase && (
-            <p className="text-sm">
-              <strong>Base Value:</strong> {formatWithCommas(data.base || 0, 1)} US$ Mn
+          <p className="font-bold text-base mb-2">Year: {label}</p>
+          <p className="text-sm">
+            <strong>Market Value:</strong> {formatWithCommas(data.marketValue || 0, 1)} US$ Mn
+          </p>
+          {data.marketValue > threshold && (
+            <p className="text-sm text-blue-400">
+              <strong>Above Threshold:</strong> {formatWithCommas(data.aboveThreshold || 0, 1)} US$ Mn
             </p>
-          )}
-          {data.isTotal && (
-            <p className="text-sm">
-              <strong>Total Value:</strong> {formatWithCommas(data.base || 0, 1)} US$ Mn
-            </p>
-          )}
-          {!data.isBase && !data.isTotal && (
-            <>
-              <p className="text-sm">
-                <strong>Incremental Opportunity:</strong> {formatWithCommas(data.incremental || 0, 1)} US$ Mn
-              </p>
-              <p className="text-sm">
-                <strong>Cumulative:</strong> {formatWithCommas(data.cumulative || 0, 1)} US$ Mn
-              </p>
-            </>
           )}
         </div>
       )
@@ -113,9 +86,9 @@ export function WaterfallChart({
     return null
   }
 
-  // Colors matching the screenshot: dark blue for base/total, light blue for incremental
-  const baseColor = '#1E3A8A' // Dark blue
-  const incrementalColor = '#60A5FA' // Light blue
+  // Two-tone blue colors
+  const darkBlue = '#1E40AF' // Darker blue for below threshold
+  const lightBlue = '#60A5FA' // Lighter blue for above threshold
 
   return (
     <div className="relative w-full h-full">
@@ -131,40 +104,24 @@ export function WaterfallChart({
           Demo Data
         </span>
       </div>
-      
-      {/* Incremental Opportunity Arrow/Label - matching screenshot style */}
+
+      {/* Bold Title - Incremental Opportunity */}
       {incrementalOpportunity && (
-        <div className="absolute top-4 left-0 right-0 z-20" style={{ paddingLeft: '80px', paddingRight: '40px' }}>
-          <div className="relative flex items-center h-10">
-            {/* Arrow body - blue background spanning across */}
-            <div className="flex-1 h-full bg-blue-600 flex items-center justify-center">
-              <p className="text-sm font-semibold text-white whitespace-nowrap">
-                Incremental Opportunity: {formatWithCommas(incrementalOpportunity, 1)} US$ Mn
-              </p>
-            </div>
-            {/* Arrow head pointing right */}
-            <div 
-              className="flex-shrink-0"
-              style={{
-                width: '0',
-                height: '0',
-                borderLeft: '24px solid #2563EB',
-                borderTop: '20px solid transparent',
-                borderBottom: '20px solid transparent',
-              }}
-            ></div>
-          </div>
+        <div className="absolute top-4 left-0 right-0 z-20 text-center mb-4">
+          <h3 className="text-2xl font-bold text-electric-blue dark:text-cyan-accent">
+            Incremental Opportunity: {formatWithCommas(incrementalOpportunity, 1)} US$ Mn
+          </h3>
         </div>
       )}
 
       <ResponsiveContainer width="100%" height="100%" className="relative z-10">
         <RechartsBarChart
-          data={transformedData}
+          data={chartData}
           margin={{
-            top: 60,
+            top: incrementalOpportunity ? 70 : 20,
             right: 40,
             left: 80,
-            bottom: 100,
+            bottom: 80,
           }}
         >
           <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#4A5568' : '#EAEAEA'} />
@@ -207,70 +164,48 @@ export function WaterfallChart({
             }}
           />
           <Tooltip content={<CustomTooltip />} />
-          <ReferenceLine y={0} stroke={isDark ? '#A0AEC0' : '#4A5568'} />
-          {/* Custom Legend */}
-          <Legend 
-            wrapperStyle={{ paddingTop: '20px' }}
-            content={() => (
-              <div className="flex justify-center gap-6 mt-4">
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="w-4 h-4 rounded"
-                    style={{ backgroundColor: baseColor }}
-                  ></div>
-                  <span className="text-sm text-text-primary-light dark:text-text-primary-dark">
-                    (US$ Mn)
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="w-4 h-4 rounded"
-                    style={{ backgroundColor: incrementalColor }}
-                  ></div>
-                  <span className="text-sm text-text-primary-light dark:text-text-primary-dark">
-                    Absolute $ Opportunity
-                  </span>
-                </div>
-              </div>
-            )}
+          
+          {/* Horizontal Reference Line - Threshold */}
+          <ReferenceLine 
+            y={threshold} 
+            stroke={isDark ? '#60A5FA' : '#2563EB'}
+            strokeWidth={2}
+            strokeDasharray="5 5"
+            label={{
+              value: 'Threshold',
+              position: 'right',
+              style: {
+                fill: isDark ? '#60A5FA' : '#2563EB',
+                fontSize: '12px',
+                fontWeight: 500
+              }
+            }}
           />
           
-          {/* Base bars (for base and total) - dark blue */}
+          {/* Stacked bars: below threshold (darker blue) and above threshold (lighter blue) */}
           <Bar 
-            dataKey="base" 
-            stackId="waterfall" 
+            dataKey="belowThreshold" 
+            stackId="marketValue"
             radius={[0, 0, 0, 0]}
-            name="baseValue"
-            legendType="rect"
-            hide={false}
+            name="Below Threshold"
           >
-            {transformedData.map((entry, index) => {
-              if (entry.isBase || entry.isTotal) {
-                return <Cell key={`cell-base-${index}`} fill={baseColor} />
-              }
-              return <Cell key={`cell-base-${index}`} fill={incrementalColor} />
-            })}
+            {chartData.map((entry, index) => (
+              <Cell key={`cell-below-${index}`} fill={darkBlue} />
+            ))}
           </Bar>
           
-          {/* Incremental bars - light blue */}
           <Bar 
-            dataKey="incremental" 
-            stackId="waterfall" 
+            dataKey="aboveThreshold" 
+            stackId="marketValue"
             radius={[0, 0, 0, 0]}
-            name="incrementalValue"
-            legendType="rect"
-            hide={false}
+            name="Above Threshold"
           >
-            {transformedData.map((entry, index) => {
-              if (entry.isBase || entry.isTotal) {
-                return <Cell key={`cell-incremental-${index}`} fill="transparent" />
-              }
-              return <Cell key={`cell-incremental-${index}`} fill={incrementalColor} />
-            })}
+            {chartData.map((entry, index) => (
+              <Cell key={`cell-above-${index}`} fill={lightBlue} />
+            ))}
           </Bar>
         </RechartsBarChart>
       </ResponsiveContainer>
     </div>
   )
 }
-

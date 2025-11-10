@@ -578,29 +578,6 @@ export function CustomerIntelligence({ onNavigate }: CustomerIntelligenceProps) 
       return acc
     }, {} as Record<string, number>)
 
-    // By Shovel Type - aggregate volume instead of counting customers
-    const shovelTypeData = filteredData.reduce((acc, d) => {
-      const shovelType = d.typeOfShovelRequired?.trim()
-      if (shovelType && shovelType.length > 0) {
-        // Truncate very long shovel type names for better readability
-        const displayName = shovelType.length > 40 ? shovelType.substring(0, 37) + '...' : shovelType
-        // Extract volume from estimatedVolumeRequirement (e.g., "6,000-10,000 units/year" -> take average)
-        const volumeStr = d.estimatedVolumeRequirement || ''
-        const volumeMatch = volumeStr.match(/(\d{1,3}(?:,\d{3})*)/g)
-        if (volumeMatch && volumeMatch.length > 0) {
-          // Take the first number or average if range
-          const volumes = volumeMatch.map(v => parseInt(v.replace(/,/g, '')))
-          const avgVolume = volumes.length > 1 
-            ? Math.round((volumes[0] + volumes[1]) / 2)
-            : volumes[0]
-          acc[displayName] = (acc[displayName] || 0) + avgVolume
-        } else {
-          // If no volume found, use 0
-          acc[displayName] = (acc[displayName] || 0) + 0
-        }
-      }
-      return acc
-    }, {} as Record<string, number>)
 
     // By Lead Potential - normalize and categorize
     const leadPotentialData = filteredData.reduce((acc, d) => {
@@ -630,9 +607,6 @@ export function CustomerIntelligence({ onNavigate }: CustomerIntelligenceProps) 
         .sort(sortByValue)
         .map(([name, value]) => ({ name, value })),
       industry: Object.entries(industryData)
-        .sort(sortByValue)
-        .map(([name, value]) => ({ name, value })),
-      shovelType: Object.entries(shovelTypeData)
         .sort(sortByValue)
         .map(([name, value]) => ({ name, value })),
       leadPotential: Object.entries(leadPotentialData)
@@ -845,32 +819,6 @@ export function CustomerIntelligence({ onNavigate }: CustomerIntelligenceProps) 
                 uniqueDiseases={analysisData.uniqueIndustries}
                 xAxisLabel="Region"
                 yAxisLabel="Volume"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Volume by Shovel Type Chart */}
-        {analysisData.shovelType.length > 0 && (
-          <div className={`p-8 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 ${isDark ? 'bg-navy-card border-2 border-navy-light' : 'bg-white border-2 border-gray-200'}`}>
-            <div className="mb-6">
-              <div className="flex items-center gap-3 mb-2">
-                <div className={`w-1 h-8 rounded-full ${isDark ? 'bg-cyan-accent' : 'bg-electric-blue'}`}></div>
-                <h3 className="text-2xl font-bold text-text-primary-light dark:text-text-primary-dark">
-                  Volume by Shovel Type - 2025
-                </h3>
-              </div>
-              <p className="text-base text-text-secondary-light dark:text-text-secondary-dark ml-4">
-                Total volume by required shovel type
-              </p>
-            </div>
-            <div className="h-[500px] w-full">
-              <BarChart
-                data={analysisData.shovelType}
-                dataKey="value"
-                nameKey="name"
-                xAxisLabel="Shovel Type"
-                yAxisLabel="Volume (Units)"
               />
             </div>
           </div>
