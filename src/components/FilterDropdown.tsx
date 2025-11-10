@@ -14,9 +14,10 @@ interface FilterDropdownProps {
   options: (string | number)[]
   multiple?: boolean
   groupedOptions?: GroupedOption[] // New prop for grouped display
+  optionLabels?: Record<string | number, string> // Optional mapping of option values to display labels
 }
 
-export function FilterDropdown({ label, value, onChange, options, multiple = true, groupedOptions }: FilterDropdownProps) {
+export function FilterDropdown({ label, value, onChange, options, multiple = true, groupedOptions, optionLabels }: FilterDropdownProps) {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const [isOpen, setIsOpen] = useState(false)
@@ -94,17 +95,24 @@ export function FilterDropdown({ label, value, onChange, options, multiple = tru
     setIsOpen(false)
   }
 
+  const getOptionLabel = (optionValue: string | number): string => {
+    if (optionLabels && optionLabels[optionValue]) {
+      return optionLabels[optionValue]
+    }
+    return String(optionValue)
+  }
+
   const getDisplayText = () => {
     if (multiple) {
       if (selectedValues.length === 0) {
         return `Select ${label}...`
       }
       if (selectedValues.length === 1) {
-        return selectedValues[0]
+        return getOptionLabel(selectedValues[0])
       }
       return `${selectedValues.length} selected`
     }
-    return selectedValues[0] || `Select ${label}...`
+    return selectedValues[0] ? getOptionLabel(selectedValues[0]) : `Select ${label}...`
   }
 
   const getSelectedCount = () => {
@@ -226,7 +234,7 @@ export function FilterDropdown({ label, value, onChange, options, multiple = tru
                             )}
                           </div>
                         )}
-                        <span className="flex-1 truncate">{option}</span>
+                        <span className="flex-1 truncate">{getOptionLabel(option)}</span>
                         {!multiple && isSelected && (
                           <Check size={16} className="text-electric-blue flex-shrink-0" />
                         )}
@@ -268,7 +276,7 @@ export function FilterDropdown({ label, value, onChange, options, multiple = tru
                         )}
                       </div>
                     )}
-                    <span className="flex-1 truncate">{option}</span>
+                    <span className="flex-1 truncate">{getOptionLabel(option)}</span>
                     {!multiple && isSelected && (
                       <Check size={16} className="text-electric-blue flex-shrink-0" />
                     )}

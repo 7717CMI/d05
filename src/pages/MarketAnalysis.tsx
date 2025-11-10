@@ -12,6 +12,7 @@ import { useTheme } from '../context/ThemeContext'
 import { InfoTooltip } from '../components/InfoTooltip'
 import { WaterfallChart } from '../components/WaterfallChart'
 import { BubbleChart } from '../components/BubbleChart'
+import { YoYCAGRChart } from '../components/YoYCAGRChart'
 
 interface MarketAnalysisProps {
   onNavigate: (page: string) => void
@@ -23,7 +24,7 @@ export function MarketAnalysis({ onNavigate }: MarketAnalysisProps) {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   
-  const [activeTab, setActiveTab] = useState<'standard' | 'incremental' | 'attractiveness'>('standard')
+  const [activeTab, setActiveTab] = useState<'standard' | 'incremental' | 'attractiveness' | 'yoy'>('standard')
   const [data, setData] = useState<ShovelMarketData[]>([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({
@@ -50,6 +51,13 @@ export function MarketAnalysis({ onNavigate }: MarketAnalysisProps) {
   const [attractivenessFilters, setAttractivenessFilters] = useState({
     region: [] as string[],
     productType: [] as string[],
+  })
+  
+  // Separate filters for YoY/CAGR tab
+  const [yoyFilters, setYoyFilters] = useState({
+    region: [] as string[],
+    productType: [] as string[],
+    country: [] as string[],
   })
 
   useEffect(() => {
@@ -910,6 +918,180 @@ export function MarketAnalysis({ onNavigate }: MarketAnalysisProps) {
     return bubbleData
   }, [filteredAttractivenessData])
 
+  // Get unique options for YoY filters
+  const yoyFilterOptions = useMemo(() => {
+    if (!data || data.length === 0) {
+      return {
+        regions: [],
+        productTypes: [],
+        countries: [],
+        countryOptions: [], // Options with region names
+      }
+    }
+    
+    const regionSet = new Set<string>()
+    const productTypeSet = new Set<string>()
+    const countryRegionMap = new Map<string, string>() // country -> region mapping
+    
+    data.forEach(d => {
+      if (d.region) regionSet.add(d.region)
+      if (d.productType) productTypeSet.add(d.productType)
+      if (d.country && d.region) {
+        countryRegionMap.set(d.country, d.region)
+      }
+    })
+    
+    // Filter countries based on selected regions
+    let availableCountries = Array.from(countryRegionMap.keys())
+    if (yoyFilters.region.length > 0) {
+      availableCountries = availableCountries.filter(country => {
+        const countryRegion = countryRegionMap.get(country)
+        return countryRegion && yoyFilters.region.includes(countryRegion)
+      })
+    }
+    
+    // Create country options with region names
+    const countryOptions = availableCountries
+      .sort()
+      .map(country => {
+        const region = countryRegionMap.get(country) || ''
+        return {
+          value: country,
+          label: `${country} (${region})`
+        }
+      })
+    
+    return {
+      regions: Array.from(regionSet).sort(),
+      productTypes: Array.from(productTypeSet).sort(),
+      countries: availableCountries.sort(),
+      countryOptions: countryOptions,
+    }
+  }, [data, yoyFilters.region])
+
+  // Filter data for YoY/CAGR chart
+  const filteredYoyData = useMemo(() => {
+    let filtered = [...data]
+    
+    if (yoyFilters.region.length > 0) {
+      filtered = filtered.filter(d => yoyFilters.region.includes(d.region))
+    }
+    if (yoyFilters.productType.length > 0) {
+      filtered = filtered.filter(d => yoyFilters.productType.includes(d.productType))
+    }
+    if (yoyFilters.country.length > 0) {
+      filtered = filtered.filter(d => yoyFilters.country.includes(d.country))
+    }
+    
+    return filtered
+  }, [data, yoyFilters])
+
+  // YoY/CAGR Chart Data - Generate separate data for each country/region (no summation)
+  const yoyCagrDataByEntity = useMemo(() => {
+    // Determine which entities to create charts for
+    const entities: Array<{ type: 'country' | 'region', name: string, label: string }> = []
+    
+    // If countries are selected, create charts for each country
+    if (yoyFilters.country.length > 0) {
+      yoyFilters.country.forEach(country => {
+        // Find the region for this country
+        const countryData = filteredYoyData.find(d => d.country === country)
+        const region = countryData?.region || ''
+        entities.push({
+          type: 'country',
+          name: country,
+          label: `${country}${region ? ` (${region})` : ''}`
+        })
+      })
+    } 
+    // If only regions are selected (no countries), create charts for each region
+    else if (yoyFilters.region.length > 0) {
+      yoyFilters.region.forEach(region => {
+        entities.push({
+          type: 'region',
+          name: region,
+          label: region
+        })
+      })
+    }
+    // If nothing is selected, return empty array
+    else {
+      return []
+    }
+    
+    // Generate data for each entity
+    const entityDataMap = new Map<string, Array<{ year: string, yoy: number, cagr: number }>>()
+    
+    entities.forEach(entity => {
+      // Filter data for this specific entity
+      let entityFilteredData = filteredYoyData
+      
+      if (entity.type === 'country') {
+        entityFilteredData = entityFilteredData.filter(d => d.country === entity.name)
+      } else if (entity.type === 'region') {
+        entityFilteredData = entityFilteredData.filter(d => d.region === entity.name)
+      }
+      
+      // Group data by year for this entity (no summation across entities)
+      const yearDataMap = new Map<number, number>()
+      
+      entityFilteredData.forEach(d => {
+        const year = d.year
+        const value = (d.marketValueUsd || 0) / 1000 // Convert to millions
+        yearDataMap.set(year, (yearDataMap.get(year) || 0) + value)
+      })
+      
+      // Sort years
+      const years = Array.from(yearDataMap.keys()).sort()
+      
+      if (years.length < 2) {
+        // Not enough data for YoY/CAGR calculation
+        return
+      }
+      
+      // Calculate YoY and CAGR for each year
+      const chartData = years.map((year, index) => {
+        const currentValue = yearDataMap.get(year) || 0
+        
+        // Calculate YoY (Year-over-Year) growth
+        let yoy = 0
+        if (index > 0) {
+          const previousYear = years[index - 1]
+          const previousValue = yearDataMap.get(previousYear) || 0
+          if (previousValue > 0) {
+            yoy = ((currentValue - previousValue) / previousValue) * 100
+          }
+        }
+        
+        // Calculate CAGR from first year to current year
+        let cagr = 0
+        if (index > 0) {
+          const firstYear = years[0]
+          const firstValue = yearDataMap.get(firstYear) || 0
+          if (firstValue > 0 && currentValue > 0) {
+            const yearsDiff = year - firstYear
+            if (yearsDiff > 0) {
+              cagr = (Math.pow(currentValue / firstValue, 1 / yearsDiff) - 1) * 100
+            }
+          }
+        }
+        
+        return {
+          year: String(year),
+          yoy: yoy,
+          cagr: cagr,
+        }
+      })
+      
+      entityDataMap.set(entity.label, chartData)
+    })
+    
+    return Array.from(entityDataMap.entries()).map(([label, data]) => ({
+      label,
+      data
+    }))
+  }, [filteredYoyData, yoyFilters.country, yoyFilters.region])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -1004,6 +1186,19 @@ export function MarketAnalysis({ onNavigate }: MarketAnalysisProps) {
               >
                 Market Attractiveness
                 {activeTab === 'attractiveness' && (
+                  <div className={`absolute bottom-0 left-0 right-0 h-0.5 ${isDark ? 'bg-cyan-accent' : 'bg-electric-blue'}`}></div>
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('yoy')}
+                className={`px-6 py-3 font-semibold text-base transition-all relative ${
+                  activeTab === 'yoy'
+                    ? 'text-electric-blue dark:text-cyan-accent'
+                    : 'text-text-secondary-light dark:text-text-secondary-dark hover:text-electric-blue dark:hover:text-cyan-accent'
+                }`}
+              >
+                YoY / CAGR Analysis
+                {activeTab === 'yoy' && (
                   <div className={`absolute bottom-0 left-0 right-0 h-0.5 ${isDark ? 'bg-cyan-accent' : 'bg-electric-blue'}`}></div>
                 )}
               </button>
@@ -1630,6 +1825,103 @@ export function MarketAnalysis({ onNavigate }: MarketAnalysisProps) {
                     />
                   </div>
                 </div>
+              </div>
+            </>
+          )}
+
+          {/* YoY / CAGR Analysis Tab */}
+          {activeTab === 'yoy' && (
+            <>
+              {/* Filters Section for YoY/CAGR Tab */}
+              <div className={`p-8 rounded-2xl mb-8 shadow-xl ${isDark ? 'bg-navy-card border-2 border-navy-light' : 'bg-white border-2 border-gray-300'} relative`} style={{ overflow: 'visible' }}>
+                <div className="mb-6">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className={`w-1 h-8 rounded-full ${isDark ? 'bg-cyan-accent' : 'bg-electric-blue'}`}></div>
+                    <h3 className="text-2xl font-bold text-text-primary-light dark:text-text-primary-dark">
+                      Filter Data
+                    </h3>
+                  </div>
+                  <p className="text-base text-text-secondary-light dark:text-text-secondary-dark ml-4">
+                    Filter YoY and CAGR analysis data by region, product type, and country.
+                  </p>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <FilterDropdown
+                    label="Region"
+                    value={yoyFilters.region}
+                    onChange={(value) => {
+                      const newRegions = value as string[]
+                      // Clear country selection when region changes to avoid invalid states
+                      setYoyFilters({ ...yoyFilters, region: newRegions, country: [] })
+                    }}
+                    options={yoyFilterOptions.regions}
+                  />
+                  <FilterDropdown
+                    label="Product Type"
+                    value={yoyFilters.productType}
+                    onChange={(value) => setYoyFilters({ ...yoyFilters, productType: value as string[] })}
+                    options={yoyFilterOptions.productTypes}
+                  />
+                  <FilterDropdown
+                    label="Country"
+                    value={yoyFilters.country}
+                    onChange={(value) => setYoyFilters({ ...yoyFilters, country: value as string[] })}
+                    options={yoyFilterOptions.countries}
+                    optionLabels={yoyFilterOptions.countryOptions.reduce((acc, opt) => {
+                      acc[opt.value] = opt.label
+                      return acc
+                    }, {} as Record<string, string>)}
+                  />
+                </div>
+              </div>
+
+              <div className="mb-20">
+                <div className="mb-8">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`w-1 h-10 rounded-full ${isDark ? 'bg-cyan-accent' : 'bg-electric-blue'}`}></div>
+                    <InfoTooltip content="• Shows Year-over-Year (YoY) growth rate and Compound Annual Growth Rate (CAGR)\n• Toggle between YoY and CAGR views using the button\n• YoY shows year-to-year growth percentage\n• CAGR shows cumulative annual growth rate from the first year\n• Select regions or countries to generate separate charts for each (no summation)\n• Use filters to analyze specific regions, product types, or countries">
+                      <h2 className="text-3xl font-bold text-text-primary-light dark:text-text-primary-dark cursor-help">
+                        Year-over-Year (YoY) & CAGR Analysis
+                      </h2>
+                    </InfoTooltip>
+                  </div>
+                  <p className="text-base text-text-secondary-light dark:text-text-secondary-dark ml-4 mb-2">
+                    Growth rate analysis with toggle between YoY and CAGR metrics. Separate charts for each selected country/region.
+                  </p>
+                </div>
+                
+                {yoyCagrDataByEntity.length === 0 ? (
+                  <div className={`p-6 rounded-xl shadow-lg ${isDark ? 'bg-navy-card border-2 border-navy-light' : 'bg-white border-2 border-gray-200'}`}>
+                    <div className="flex items-center justify-center h-[400px]">
+                      <p className="text-text-secondary-light dark:text-text-secondary-dark text-lg">
+                        Please select at least one region or country to view the analysis
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {yoyCagrDataByEntity.map((entity, index) => (
+                      <div key={index} className={`p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 h-[600px] flex flex-col ${isDark ? 'bg-navy-card border-2 border-navy-light' : 'bg-white border-2 border-gray-200'}`}>
+                        <div className="mb-4 pb-4 border-b border-gray-200 dark:border-navy-light">
+                          <h3 className="text-lg font-bold text-electric-blue dark:text-cyan-accent mb-1">
+                            {entity.label}
+                          </h3>
+                          <p className="text-sm text-text-secondary-light dark:text-text-secondary-dark">
+                            Toggle between YoY and CAGR views
+                          </p>
+                        </div>
+                        <div className="flex-1 flex items-center justify-center min-h-0 pt-2">
+                          <YoYCAGRChart
+                            data={entity.data}
+                            xAxisLabel="Year"
+                            yAxisLabel="Growth Rate (%)"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           )}
